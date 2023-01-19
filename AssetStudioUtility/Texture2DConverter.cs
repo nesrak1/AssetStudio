@@ -25,6 +25,17 @@ namespace AssetStudio
             outPutSize = m_Width * m_Height * 4;
         }
 
+        public Texture2DConverter(Texture2D m_Texture2D, int overrideWidth, int overrideHeight)
+        {
+            reader = m_Texture2D.image_data;
+            m_Width = overrideWidth;
+            m_Height = overrideHeight;
+            m_TextureFormat = m_Texture2D.m_TextureFormat;
+            version = m_Texture2D.version;
+            platform = m_Texture2D.platform;
+            outPutSize = m_Width * m_Height * 4;
+        }
+
         public bool DecodeTexture2D(byte[] bytes)
         {
             if (reader.Size == 0 || m_Width == 0 || m_Height == 0)
