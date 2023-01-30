@@ -2,7 +2,7 @@
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
-using System.Diagnostics;
+using System;
 using System.IO;
 
 namespace AssetStudio
@@ -15,6 +15,7 @@ namespace AssetStudio
             var height = m_Texture2D.m_Height;
 
             var switchDeswizzle = false;
+            var gobsPerBlock = 1;
             if (m_Texture2D.reader.assetsFile.m_TargetPlatform == BuildTarget.Switch)
             {
                 //unsure how to decode this, but it appears that only
@@ -22,7 +23,16 @@ namespace AssetStudio
                 if (m_Texture2D.m_PlatformBlob.Length != 0)
                 {
                     switchDeswizzle = true;
-                    height = ToNextNearestPo2(height);
+
+                    var platBlob = m_Texture2D.m_PlatformBlob;
+                    gobsPerBlock = 1 << BitConverter.ToInt32(platBlob, 8);
+                    //apparently there is another value to worry about, but seeing as it's
+                    //always 0 and I have nothing else to test against, this will probably
+                    //work fine for now
+
+                    var newSize = Texture2DDeswizzler.SwitchGetPaddedTextureSize(m_Texture2D.m_TextureFormat, width, height);
+                    width = newSize.Width;
+                    height = newSize.Height;
                 }
             }
 
@@ -37,8 +47,8 @@ namespace AssetStudio
                     if (switchDeswizzle)
                     {
                         Size blockSize = Texture2DDeswizzler.TextureFormatToBlockSize(m_Texture2D.m_TextureFormat);
-                        image = Texture2DDeswizzler.SwitchUnswizzle(image, blockSize);
-                        image.Mutate(i => i.Crop(width, m_Texture2D.m_Height));
+                        image = Texture2DDeswizzler.SwitchUnswizzle(image, blockSize, gobsPerBlock);
+                        image.Mutate(i => i.Crop(m_Texture2D.m_Width, m_Texture2D.m_Height));
                     }
                     if (flip)
                     {
@@ -67,18 +77,9 @@ namespace AssetStudio
             return null;
         }
 
-        private static int ToNextNearestPo2(int x)
+        private static int CeilDivide(int a, int b)
         {
-            if (x < 0)
-                return 0;
-
-            --x;
-            x |= x >> 1;
-            x |= x >> 2;
-            x |= x >> 4;
-            x |= x >> 8;
-            x |= x >> 16;
-            return x + 1;
+            return (a + b - 1) / b;
         }
     }
 }
