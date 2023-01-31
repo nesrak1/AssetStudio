@@ -117,12 +117,10 @@ namespace AssetStudioUtility
             {
                 case TextureFormat.Alpha8: return new Size(16, 1); // 1 byte per pixel
                 case TextureFormat.ARGB4444: return new Size(8, 1); // 2 bytes per pixel
-                case TextureFormat.RGB24: return new Size(1, 1); // 3 bytes per pixel
                 case TextureFormat.RGBA32: return new Size(4, 1); // 4 bytes per pixel
                 case TextureFormat.ARGB32: return new Size(4, 1); // 4 bytes per pixel
                 case TextureFormat.ARGBFloat: return new Size(1, 1); // 16 bytes per pixel (?)
                 case TextureFormat.RGB565: return new Size(8, 1); // 2 bytes per pixel
-                case TextureFormat.BGR24: return new Size(1, 1); // 3 bytes per pixel
                 case TextureFormat.R16: return new Size(8, 1); // 2 bytes per pixel
                 case TextureFormat.DXT1: return new Size(8, 4); // 8 bytes per 4x4=16 pixels
                 case TextureFormat.DXT5: return new Size(4, 4); // 16 bytes per 4x4=16 pixels

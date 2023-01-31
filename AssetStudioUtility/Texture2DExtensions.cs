@@ -31,6 +31,18 @@ namespace AssetStudio
                     //always 0 and I have nothing else to test against, this will probably
                     //work fine for now
 
+                    //in older versions of unity, rgb24 has a platformblob which shouldn't
+                    //be possible. it turns out in this case, the image is just rgba32.
+                    //probably shouldn't be modifying the texture2d here, but eh, who cares
+                    if (m_Texture2D.m_TextureFormat == TextureFormat.RGB24)
+                    {
+                        m_Texture2D.m_TextureFormat = TextureFormat.RGBA32;
+                    }
+                    else if (m_Texture2D.m_TextureFormat == TextureFormat.BGR24)
+                    {
+                        m_Texture2D.m_TextureFormat = TextureFormat.BGRA32;
+                    }
+
                     blockSize = Texture2DDeswizzler.TextureFormatToBlockSize(m_Texture2D.m_TextureFormat);
                     var newSize = Texture2DDeswizzler.SwitchGetPaddedTextureSize(width, height, blockSize.Width, blockSize.Height, gobsPerBlock);
                     width = newSize.Width;
