@@ -16,6 +16,7 @@ namespace AssetStudio
 
             var switchDeswizzle = false;
             var gobsPerBlock = 1;
+            var blockSize = new Size(1, 1);
             if (m_Texture2D.reader.assetsFile.m_TargetPlatform == BuildTarget.Switch)
             {
                 //unsure how to decode this, but it appears that only
@@ -30,7 +31,8 @@ namespace AssetStudio
                     //always 0 and I have nothing else to test against, this will probably
                     //work fine for now
 
-                    var newSize = Texture2DDeswizzler.SwitchGetPaddedTextureSize(m_Texture2D.m_TextureFormat, width, height);
+                    blockSize = Texture2DDeswizzler.TextureFormatToBlockSize(m_Texture2D.m_TextureFormat);
+                    var newSize = Texture2DDeswizzler.SwitchGetPaddedTextureSize(width, height, blockSize.Width, blockSize.Height, gobsPerBlock);
                     width = newSize.Width;
                     height = newSize.Height;
                 }
@@ -46,7 +48,6 @@ namespace AssetStudio
                     var image = Image.LoadPixelData<Bgra32>(buff, width, height);
                     if (switchDeswizzle)
                     {
-                        Size blockSize = Texture2DDeswizzler.TextureFormatToBlockSize(m_Texture2D.m_TextureFormat);
                         image = Texture2DDeswizzler.SwitchUnswizzle(image, blockSize, gobsPerBlock);
                         image.Mutate(i => i.Crop(m_Texture2D.m_Width, m_Texture2D.m_Height));
                     }
