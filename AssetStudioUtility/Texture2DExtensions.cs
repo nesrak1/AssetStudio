@@ -29,7 +29,7 @@ namespace AssetStudio
                     gobsPerBlock = 1 << BitConverter.ToInt32(platBlob, 8);
                     //apparently there is another value to worry about, but seeing as it's
                     //always 0 and I have nothing else to test against, this will probably
-                    //work fine for now 
+                    //work fine for now
 
                     blockSize = Texture2DDeswizzler.TextureFormatToBlockSize(m_Texture2D.m_TextureFormat);
                     var newSize = Texture2DDeswizzler.SwitchGetPaddedTextureSize(width, height, blockSize.Width, blockSize.Height, gobsPerBlock);
