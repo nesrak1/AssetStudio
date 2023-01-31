@@ -2,9 +2,9 @@ name: AssetStudioBuild
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, switch-tex-deswizzle ]
   pull_request:
-    branches: [ master ]
+    branches: [ master, switch-tex-deswizzle ]
 
   workflow_dispatch:
 
