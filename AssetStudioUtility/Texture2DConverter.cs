@@ -1,4 +1,5 @@
-﻿using System;
+﻿using SixLabors.ImageSharp;
+using System;
 using System.Runtime.CompilerServices;
 using Texture2DDecoder;
 
@@ -9,31 +10,76 @@ namespace AssetStudio
         private ResourceReader reader;
         private int m_Width;
         private int m_Height;
+        private int m_WidthCrop;
+        private int m_HeightCrop;
         private TextureFormat m_TextureFormat;
+        private byte[] m_PlatformBlob;
         private int[] version;
         private BuildTarget platform;
         private int outPutSize;
 
+        private bool switchSwizzled;
+        private int gobsPerBlock;
+        private Size blockSize;
+
         public Texture2DConverter(Texture2D m_Texture2D)
         {
             reader = m_Texture2D.image_data;
-            m_Width = m_Texture2D.m_Width;
-            m_Height = m_Texture2D.m_Height;
+            m_WidthCrop = m_Texture2D.m_Width;
+            m_HeightCrop = m_Texture2D.m_Height;
             m_TextureFormat = m_Texture2D.m_TextureFormat;
+            m_PlatformBlob = m_Texture2D.m_PlatformBlob;
             version = m_Texture2D.version;
             platform = m_Texture2D.platform;
+            // not guaranteed, you can have a swizzled texture without m_PlatformBlob
+            // but officially, I don't think this can happen. maybe check which engine
+            // version this started happening in...
+            switchSwizzled = platform == BuildTarget.Switch && m_PlatformBlob.Length != 0;
+            if (switchSwizzled)
+            {
+                SetupSwitchSwizzle();
+            }
+            else
+            {
+                m_Width = m_WidthCrop;
+                m_Height = m_HeightCrop;
+            }
             outPutSize = m_Width * m_Height * 4;
         }
 
-        public Texture2DConverter(Texture2D m_Texture2D, int overrideWidth, int overrideHeight)
+        private void SetupSwitchSwizzle()
         {
-            reader = m_Texture2D.image_data;
-            m_Width = overrideWidth;
-            m_Height = overrideHeight;
-            m_TextureFormat = m_Texture2D.m_TextureFormat;
-            version = m_Texture2D.version;
-            platform = m_Texture2D.platform;
-            outPutSize = m_Width * m_Height * 4;
+            //apparently there is another value to worry about, but seeing as it's
+            //always 0 and I have nothing else to test against, this will probably
+            //work fine for now
+            gobsPerBlock = 1 << BitConverter.ToInt32(m_PlatformBlob, 8);
+
+            //in older versions of unity, rgb24 has a platformblob which shouldn't
+            //be possible. it turns out in this case, the image is just rgba32.
+            //probably shouldn't be modifying the texture2d here, but eh, who cares
+            if (m_TextureFormat == TextureFormat.RGB24)
+            {
+                m_TextureFormat = TextureFormat.RGBA32;
+            }
+            else if (m_TextureFormat == TextureFormat.BGR24)
+            {
+                m_TextureFormat = TextureFormat.BGRA32;
+            }
+
+            blockSize = Texture2DSwitchDeswizzler.GetTextureFormatBlockSize(m_TextureFormat);
+            var realSize = Texture2DSwitchDeswizzler.GetPaddedTextureSize(m_WidthCrop, m_HeightCrop, blockSize.Width, blockSize.Height, gobsPerBlock);
+            m_Width = realSize.Width;
+            m_Height = realSize.Height;
+        }
+
+        public Size GetUncroppedSize()
+        {
+            return new Size(m_Width, m_Height);
+        }
+
+        public bool UsesSwitchSwizzle()
+        {
+            return switchSwizzled;
         }
 
         public bool DecodeTexture2D(byte[] bytes)
@@ -42,186 +88,193 @@ namespace AssetStudio
             {
                 return false;
             }
-            var flag = false;
+
+            var success = false;
             var buff = BigArrayPool<byte>.Shared.Rent(reader.Size);
             reader.GetData(buff);
+
+            if (switchSwizzled)
+            {
+                buff = Texture2DSwitchDeswizzler.Unswizzle(buff, GetUncroppedSize(), blockSize, gobsPerBlock);
+            }
+
             switch (m_TextureFormat)
             {
                 case TextureFormat.Alpha8: //test pass
-                    flag = DecodeAlpha8(buff, bytes);
+                    success = DecodeAlpha8(buff, bytes);
                     break;
                 case TextureFormat.ARGB4444: //test pass
                     SwapBytesForXbox(buff);
-                    flag = DecodeARGB4444(buff, bytes);
+                    success = DecodeARGB4444(buff, bytes);
                     break;
                 case TextureFormat.RGB24: //test pass
-                    flag = DecodeRGB24(buff, bytes);
+                    success = DecodeRGB24(buff, bytes);
                     break;
                 case TextureFormat.RGBA32: //test pass
-                    flag = DecodeRGBA32(buff, bytes);
+                    success = DecodeRGBA32(buff, bytes);
                     break;
                 case TextureFormat.ARGB32: //test pass
-                    flag = DecodeARGB32(buff, bytes);
+                    success = DecodeARGB32(buff, bytes);
                     break;
                 case TextureFormat.RGB565: //test pass
                     SwapBytesForXbox(buff);
-                    flag = DecodeRGB565(buff, bytes);
+                    success = DecodeRGB565(buff, bytes);
                     break;
                 case TextureFormat.R16: //test pass
-                    flag = DecodeR16(buff, bytes);
+                    success = DecodeR16(buff, bytes);
                     break;
                 case TextureFormat.DXT1: //test pass
                     SwapBytesForXbox(buff);
-                    flag = DecodeDXT1(buff, bytes);
+                    success = DecodeDXT1(buff, bytes);
                     break;
                 case TextureFormat.DXT3:
                     break;
                 case TextureFormat.DXT5: //test pass
                     SwapBytesForXbox(buff);
-                    flag = DecodeDXT5(buff, bytes);
+                    success = DecodeDXT5(buff, bytes);
                     break;
                 case TextureFormat.RGBA4444: //test pass
-                    flag = DecodeRGBA4444(buff, bytes);
+                    success = DecodeRGBA4444(buff, bytes);
                     break;
                 case TextureFormat.BGRA32: //test pass
-                    flag = DecodeBGRA32(buff, bytes);
+                    success = DecodeBGRA32(buff, bytes);
                     break;
                 case TextureFormat.RHalf:
-                    flag = DecodeRHalf(buff, bytes);
+                    success = DecodeRHalf(buff, bytes);
                     break;
                 case TextureFormat.RGHalf:
-                    flag = DecodeRGHalf(buff, bytes);
+                    success = DecodeRGHalf(buff, bytes);
                     break;
                 case TextureFormat.RGBAHalf: //test pass
-                    flag = DecodeRGBAHalf(buff, bytes);
+                    success = DecodeRGBAHalf(buff, bytes);
                     break;
                 case TextureFormat.RFloat:
-                    flag = DecodeRFloat(buff, bytes);
+                    success = DecodeRFloat(buff, bytes);
                     break;
                 case TextureFormat.RGFloat:
-                    flag = DecodeRGFloat(buff, bytes);
+                    success = DecodeRGFloat(buff, bytes);
                     break;
                 case TextureFormat.RGBAFloat:
-                    flag = DecodeRGBAFloat(buff, bytes);
+                    success = DecodeRGBAFloat(buff, bytes);
                     break;
                 case TextureFormat.YUY2: //test pass
-                    flag = DecodeYUY2(buff, bytes);
+                    success = DecodeYUY2(buff, bytes);
                     break;
                 case TextureFormat.RGB9e5Float: //test pass
-                    flag = DecodeRGB9e5Float(buff, bytes);
+                    success = DecodeRGB9e5Float(buff, bytes);
                     break;
                 case TextureFormat.BC6H: //test pass
-                    flag = DecodeBC6H(buff, bytes);
+                    success = DecodeBC6H(buff, bytes);
                     break;
                 case TextureFormat.BC7: //test pass
-                    flag = DecodeBC7(buff, bytes);
+                    success = DecodeBC7(buff, bytes);
                     break;
                 case TextureFormat.BC4: //test pass
-                    flag = DecodeBC4(buff, bytes);
+                    success = DecodeBC4(buff, bytes);
                     break;
                 case TextureFormat.BC5: //test pass
-                    flag = DecodeBC5(buff, bytes);
+                    success = DecodeBC5(buff, bytes);
                     break;
                 case TextureFormat.DXT1Crunched: //test pass
-                    flag = DecodeDXT1Crunched(buff, bytes);
+                    success = DecodeDXT1Crunched(buff, bytes);
                     break;
                 case TextureFormat.DXT5Crunched: //test pass
-                    flag = DecodeDXT5Crunched(buff, bytes);
+                    success = DecodeDXT5Crunched(buff, bytes);
                     break;
                 case TextureFormat.PVRTC_RGB2: //test pass
                 case TextureFormat.PVRTC_RGBA2: //test pass
-                    flag = DecodePVRTC(buff, bytes, true);
+                    success = DecodePVRTC(buff, bytes, true);
                     break;
                 case TextureFormat.PVRTC_RGB4: //test pass
                 case TextureFormat.PVRTC_RGBA4: //test pass
-                    flag = DecodePVRTC(buff, bytes, false);
+                    success = DecodePVRTC(buff, bytes, false);
                     break;
                 case TextureFormat.ETC_RGB4: //test pass
                 case TextureFormat.ETC_RGB4_3DS:
-                    flag = DecodeETC1(buff, bytes);
+                    success = DecodeETC1(buff, bytes);
                     break;
                 case TextureFormat.ATC_RGB4: //test pass
-                    flag = DecodeATCRGB4(buff, bytes);
+                    success = DecodeATCRGB4(buff, bytes);
                     break;
                 case TextureFormat.ATC_RGBA8: //test pass
-                    flag = DecodeATCRGBA8(buff, bytes);
+                    success = DecodeATCRGBA8(buff, bytes);
                     break;
                 case TextureFormat.EAC_R: //test pass
-                    flag = DecodeEACR(buff, bytes);
+                    success = DecodeEACR(buff, bytes);
                     break;
                 case TextureFormat.EAC_R_SIGNED:
-                    flag = DecodeEACRSigned(buff, bytes);
+                    success = DecodeEACRSigned(buff, bytes);
                     break;
                 case TextureFormat.EAC_RG: //test pass
-                    flag = DecodeEACRG(buff, bytes);
+                    success = DecodeEACRG(buff, bytes);
                     break;
                 case TextureFormat.EAC_RG_SIGNED:
-                    flag = DecodeEACRGSigned(buff, bytes);
+                    success = DecodeEACRGSigned(buff, bytes);
                     break;
                 case TextureFormat.ETC2_RGB: //test pass
-                    flag = DecodeETC2(buff, bytes);
+                    success = DecodeETC2(buff, bytes);
                     break;
                 case TextureFormat.ETC2_RGBA1: //test pass
-                    flag = DecodeETC2A1(buff, bytes);
+                    success = DecodeETC2A1(buff, bytes);
                     break;
                 case TextureFormat.ETC2_RGBA8: //test pass
                 case TextureFormat.ETC_RGBA8_3DS:
-                    flag = DecodeETC2A8(buff, bytes);
+                    success = DecodeETC2A8(buff, bytes);
                     break;
                 case TextureFormat.ASTC_RGB_4x4: //test pass
                 case TextureFormat.ASTC_RGBA_4x4: //test pass
                 case TextureFormat.ASTC_HDR_4x4: //test pass
-                    flag = DecodeASTC(buff, bytes, 4);
+                    success = DecodeASTC(buff, bytes, 4);
                     break;
                 case TextureFormat.ASTC_RGB_5x5: //test pass
                 case TextureFormat.ASTC_RGBA_5x5: //test pass
                 case TextureFormat.ASTC_HDR_5x5: //test pass
-                    flag = DecodeASTC(buff, bytes, 5);
+                    success = DecodeASTC(buff, bytes, 5);
                     break;
                 case TextureFormat.ASTC_RGB_6x6: //test pass
                 case TextureFormat.ASTC_RGBA_6x6: //test pass
                 case TextureFormat.ASTC_HDR_6x6: //test pass
-                    flag = DecodeASTC(buff, bytes, 6);
+                    success = DecodeASTC(buff, bytes, 6);
                     break;
                 case TextureFormat.ASTC_RGB_8x8: //test pass
                 case TextureFormat.ASTC_RGBA_8x8: //test pass
                 case TextureFormat.ASTC_HDR_8x8: //test pass
-                    flag = DecodeASTC(buff, bytes, 8);
+                    success = DecodeASTC(buff, bytes, 8);
                     break;
                 case TextureFormat.ASTC_RGB_10x10: //test pass
                 case TextureFormat.ASTC_RGBA_10x10: //test pass
                 case TextureFormat.ASTC_HDR_10x10: //test pass
-                    flag = DecodeASTC(buff, bytes, 10);
+                    success = DecodeASTC(buff, bytes, 10);
                     break;
                 case TextureFormat.ASTC_RGB_12x12: //test pass
                 case TextureFormat.ASTC_RGBA_12x12: //test pass
                 case TextureFormat.ASTC_HDR_12x12: //test pass
-                    flag = DecodeASTC(buff, bytes, 12);
+                    success = DecodeASTC(buff, bytes, 12);
                     break;
                 case TextureFormat.RG16: //test pass
-                    flag = DecodeRG16(buff, bytes);
+                    success = DecodeRG16(buff, bytes);
                     break;
                 case TextureFormat.R8: //test pass
-                    flag = DecodeR8(buff, bytes);
+                    success = DecodeR8(buff, bytes);
                     break;
                 case TextureFormat.ETC_RGB4Crunched: //test pass
-                    flag = DecodeETC1Crunched(buff, bytes);
+                    success = DecodeETC1Crunched(buff, bytes);
                     break;
                 case TextureFormat.ETC2_RGBA8Crunched: //test pass
-                    flag = DecodeETC2A8Crunched(buff, bytes);
+                    success = DecodeETC2A8Crunched(buff, bytes);
                     break;
                 case TextureFormat.RG32: //test pass
-                    flag = DecodeRG32(buff, bytes);
+                    success = DecodeRG32(buff, bytes);
                     break;
                 case TextureFormat.RGB48: //test pass
-                    flag = DecodeRGB48(buff, bytes);
+                    success = DecodeRGB48(buff, bytes);
                     break;
                 case TextureFormat.RGBA64: //test pass
-                    flag = DecodeRGBA64(buff, bytes);
+                    success = DecodeRGBA64(buff, bytes);
                     break;
             }
             BigArrayPool<byte>.Shared.Return(buff);
-            return flag;
+            return success;
         }
 
         private void SwapBytesForXbox(byte[] image_data)

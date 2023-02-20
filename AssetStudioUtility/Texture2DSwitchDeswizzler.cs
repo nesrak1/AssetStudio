@@ -8,19 +8,28 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace AssetStudioUtility
+namespace AssetStudio
 {
-    public class Texture2DDeswizzler
+    public class Texture2DSwitchDeswizzler
     {
         // referring to block here as a compressed texture block, not a gob one
-        const int GOB_X_BLOCK_COUNT = 4;
-        const int GOB_Y_BLOCK_COUNT = 8;
-        const int BLOCKS_IN_GOB = GOB_X_BLOCK_COUNT * GOB_Y_BLOCK_COUNT;
+        const int GOB_X_TEXEL_COUNT = 4;
+        const int GOB_Y_TEXEL_COUNT = 8;
+        const int TEXEL_BYTE_SIZE = 16;
+        const int BLOCKS_IN_GOB = GOB_X_TEXEL_COUNT * GOB_Y_TEXEL_COUNT;
+        static readonly int[] GOB_X_POSES = new int[]
+        {
+            0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 3
+        };
+        static readonly int[] GOB_Y_POSES = new int[]
+        {
+            0, 1, 0, 1, 2, 3, 2, 3, 4, 5, 4, 5, 6, 7, 6, 7, 0, 1, 0, 1, 2, 3, 2, 3, 4, 5, 4, 5, 6, 7, 6, 7
+        };
 
         /*
         sector:
         A
-        B         
+        B
          
         gob (made of sectors):
         ABIJ
@@ -36,51 +45,25 @@ namespace AssetStudioUtility
         NPRTVX...
         */
 
-        private static void CopyBlock(Image<Bgra32> srcImage, Image<Bgra32> dstImage, int sbx, int sby, int dbx, int dby, int blockSizeW, int blockSizeH)
-        {
-            for (int i = 0; i < blockSizeW; i++)
-            {
-                for (int j = 0; j < blockSizeH; j++)
-                {
-                    dstImage[dbx * blockSizeW + i, dby * blockSizeH + j] = srcImage[sbx * blockSizeW + i, sby * blockSizeH + j];
-                }
-            }
-        }
-
-        private static int ToNextNearestPo2(int x)
-        {
-            if (x < 0)
-                return 0;
-
-            --x;
-            x |= x >> 1;
-            x |= x >> 2;
-            x |= x >> 4;
-            x |= x >> 8;
-            x |= x >> 16;
-            return x + 1;
-        }
-
         private static int CeilDivide(int a, int b)
         {
             return (a + b - 1) / b;
         }
 
-        internal static Image<Bgra32> SwitchUnswizzle(Image<Bgra32> srcImage, Size blockSize, int gobsPerBlock)
+        internal static byte[] Unswizzle(byte[] data, Size imageSize, Size blockSize, int gobsPerBlock)
         {
-            Image<Bgra32> dstImage = new Image<Bgra32>(srcImage.Width, srcImage.Height);
+            byte[] newData = new byte[data.Length];
 
-            int width = srcImage.Width;
-            int height = srcImage.Height;
+            int width = imageSize.Width;
+            int height = imageSize.Height;
 
             int blockCountX = CeilDivide(width, blockSize.Width);
             int blockCountY = CeilDivide(height, blockSize.Height);
 
-            int gobCountX = blockCountX / GOB_X_BLOCK_COUNT;
-            int gobCountY = blockCountY / GOB_Y_BLOCK_COUNT;
+            int gobCountX = blockCountX / GOB_X_TEXEL_COUNT;
+            int gobCountY = blockCountY / GOB_Y_TEXEL_COUNT;
 
-            int srcX = 0;
-            int srcY = 0;
+            int srcPos = 0;
             for (int i = 0; i < gobCountY / gobsPerBlock; i++)
             {
                 for (int j = 0; j < gobCountX; j++)
@@ -89,29 +72,25 @@ namespace AssetStudioUtility
                     {
                         for (int l = 0; l < BLOCKS_IN_GOB; l++)
                         {
-                            // todo: use table for speedy boi
-                            int gobX = ((l >> 3) & 0b10) | ((l >> 1) & 0b1);
-                            int gobY = ((l >> 1) & 0b110) | (l & 0b1);
-                            int gobDstX = j * GOB_X_BLOCK_COUNT + gobX;
-                            int gobDstY = (i * gobsPerBlock + k) * GOB_Y_BLOCK_COUNT + gobY;
-                            CopyBlock(srcImage, dstImage, srcX, srcY, gobDstX, gobDstY, blockSize.Width, blockSize.Height);
-                            
-                            srcX++;
-                            if (srcX >= blockCountX)
-                            {
-                                srcX = 0;
-                                srcY++;
-                            }
+                            int gobX = GOB_X_POSES[l];
+                            int gobY = GOB_Y_POSES[l];
+                            int gobDstX = j * GOB_X_TEXEL_COUNT + gobX;
+                            int gobDstY = (i * gobsPerBlock + k) * GOB_Y_TEXEL_COUNT + gobY;
+                            int gobDstLinPos = gobDstY * blockCountX * TEXEL_BYTE_SIZE + gobDstX * TEXEL_BYTE_SIZE;
+
+                            Array.Copy(data, srcPos, newData, gobDstLinPos, TEXEL_BYTE_SIZE);
+
+                            srcPos += TEXEL_BYTE_SIZE;
                         }
                     }
                 }
             }
 
-            return dstImage;
+            return newData;
         }
 
         //this should be the amount of pixels that can fit 16 bytes
-        internal static Size TextureFormatToBlockSize(TextureFormat m_TextureFormat)
+        internal static Size GetTextureFormatBlockSize(TextureFormat m_TextureFormat)
         {
             switch (m_TextureFormat)
             {
@@ -148,10 +127,10 @@ namespace AssetStudioUtility
             };
         }
 
-        internal static Size SwitchGetPaddedTextureSize(int width, int height, int blockWidth, int blockHeight, int gobsPerBlock)
+        internal static Size GetPaddedTextureSize(int width, int height, int blockWidth, int blockHeight, int gobsPerBlock)
         {
-            width = CeilDivide(width, blockWidth * GOB_X_BLOCK_COUNT) * blockWidth * GOB_X_BLOCK_COUNT;
-            height = CeilDivide(height, blockHeight * GOB_Y_BLOCK_COUNT * gobsPerBlock) * blockHeight * GOB_Y_BLOCK_COUNT * gobsPerBlock;
+            width = CeilDivide(width, blockWidth * GOB_X_TEXEL_COUNT) * blockWidth * GOB_X_TEXEL_COUNT;
+            height = CeilDivide(height, blockHeight * GOB_Y_TEXEL_COUNT * gobsPerBlock) * blockHeight * GOB_Y_TEXEL_COUNT * gobsPerBlock;
             return new Size(width, height);
         }
     }
